@@ -1,0 +1,91 @@
+# 非 host 版本, 不使用本机代理
+version: '3.3'
+services:
+  pg:
+    container_name: seers-pg
+    image: ankane/pgvector:v0.5.0 # git
+    restart: always
+    ports: # 生产环境建议不要暴露
+      - 5432:5432
+    networks:
+      - seers-ai
+    environment:
+      # 这里的配置只有首次运行生效。修改后，重启镜像是不会生效的。需要把持久化数据删除再重启，才有效果
+      - POSTGRES_USER=
+      - POSTGRES_PASSWORD=
+      - POSTGRES_DB=postgres
+    volumes:
+      - ./pg/data:/var/lib/postgresql/data
+
+  mongo:
+    container_name: seers-mongo
+    image: mongo:5.0.18
+    restart: always
+    ports: # 生产环境建议不要暴露
+      - 27017:27017
+    networks:
+      - seers-ai
+    environment:
+      # 这里的配置只有首次运行生效。修改后，重启镜像是不会生效的。需要把持久化数据删除再重启，才有效果
+      - MONGO_INITDB_ROOT_USERNAME=
+      - MONGO_INITDB_ROOT_PASSWORD=
+    volumes:
+      - ./mongo/data:/data/db
+
+  seers-ai:
+    container_name: seers-ai
+    image: gaolingtech/seers-ai:latest # git
+    ports:
+      - 3000:3000
+    networks:
+      - seers-ai
+    depends_on:
+      - mongo
+      - pg
+    restart: always
+    environment:
+      # root 密码，用户名为: root
+      - DEFAULT_ROOT_PSW=gaoling
+      # 中转地址，如果是用官方号，不需要管
+      - OPENAI_BASE_URL=
+      - CHAT_API_KEY=
+      - DB_MAX_LINK=5 # database max link
+      - TOKEN_KEY=any
+      - ROOT_KEY=root_key
+      - FILE_TOKEN_KEY=filetoken
+      # mongo 配置，不需要改. 如果连不上，可能需要去掉 ?authSource=admin
+      - MONGODB_URI=mongodb://username:password@mongo:27017/database_name?authSource=admin
+      # pg配置. 不需要改
+      - PG_URL=postgresql://username:password@pg:5432/postgres
+    volumes:
+      - ./config.json:/app/data/config.json
+      - ./docs:/app/projects/app/public/docs
+
+  one-api:
+    container_name: seers-one-api
+    image: justsong/one-api:latest
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "2555:3000"
+    volumes:
+      - ./oneapi/data:/data
+      - ./oneapi/logs:/app/logs
+    environment:
+      # - SQL_DSN=oneapi:123456@tcp(db:3306)/one-api  # 修改此行，或注释掉以使用 SQLite 作为数据库
+      - REDIS_CONN_STRING=redis://redis
+      - SESSION_SECRET= # 修改为随机字符串
+      - TZ=Asia/Shanghai
+    #      - NODE_TYPE=slave  # 多机部署时从节点取消注释该行
+    #      - SYNC_FREQUENCY=60  # 需要定期从数据库加载数据时取消注释该行
+    #      - FRONTEND_BASE_URL=https://openai.justsong.cn  # 多机部署时从节点取消注释该行
+    depends_on:
+      - redis
+
+  redis:
+    container_name: one-api-redis
+    image: redis:latest
+    restart: always
+      
+networks:
+  seers-ai:
